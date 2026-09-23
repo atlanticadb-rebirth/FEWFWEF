@@ -1,0 +1,270 @@
+--[[
+    WindUI Auto Farm Script
+    Fitur:
+    - Auto Train
+    - Auto Rebirth
+    - Auto Collect Ore (dropdown pilih Ore_1 / Ore_2 / dst)
+]]
+
+-- =========================================================
+-- LOAD WINDUI
+-- =========================================================
+local WindUI
+
+do
+    local ok, result = pcall(function()
+        return require("./src/Init")
+    end)
+
+    if ok then
+        WindUI = result
+    else
+        WindUI = loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
+        ))()
+    end
+end
+
+-- =========================================================
+-- SERVICES
+-- =========================================================
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace         = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================================================
+-- REMOTES
+-- =========================================================
+local Remote       = ReplicatedStorage:WaitForChild("Remote", 10)
+local TrainRemote  = Remote and Remote:WaitForChild("Train", 10)
+local IntoAutoTrain = TrainRemote and TrainRemote:WaitForChild("IntoAutoTrainRE", 10)
+
+local RebirthRemote = Remote and Remote:WaitForChild("Rebirth", 10)
+local TryRebirthRE  = RebirthRemote and RebirthRemote:WaitForChild("TryRebirthRE", 10)
+
+-- =========================================================
+-- STATE
+-- =========================================================
+local State = {
+    AutoTrain      = false,
+    AutoRebirth    = false,
+    AutoCollectOre = false,
+    SelectedOre    = nil,   -- contoh: "Ore_1"
+    TrainArgs      = {11},  -- sesuaikan kalau perlu
+}
+
+-- =========================================================
+-- HELPER: Ambil daftar ore di OreCache
+-- =========================================================
+local function getOreList()
+    local OreCache = Workspace:FindFirstChild("OreCache")
+    if not OreCache then return {} end
+
+    local list = {}
+    for _, child in ipairs(OreCache:GetChildren()) do
+        if child.Name:match("^Ore_%d+$") then
+            table.insert(list, child.Name)
+        end
+    end
+    table.sort(list, function(a, b)
+        local na = tonumber(a:match("%d+")) or 0
+        local nb = tonumber(b:match("%d+")) or 0
+        return na < nb
+    end)
+    return list
+end
+
+-- =========================================================
+-- HELPER: Trigger ProximityPrompt ore terpilih
+-- =========================================================
+local function collectSelectedOre()
+    local OreCache = Workspace:FindFirstChild("OreCache")
+    if not OreCache then return end
+    if not State.SelectedOre then return end
+
+    local ore = OreCache:FindFirstChild(State.SelectedOre)
+    if not ore then return end
+
+    local main = ore:FindFirstChild("MAIN")
+    if not main then return end
+
+    local prompt = main:FindFirstChildOfClass("ProximityPrompt")
+    if not prompt then return end
+
+    -- Trigger via fireproximityprompt (biasanya tersedia di executor)
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+    else
+        -- Fallback: pakai FireServer langsung (kalau prompt punya remote sendiri)
+        prompt:InputHoldBegin()
+        task.wait(0.05)
+        prompt:InputHoldEnd()
+    end
+end
+
+-- =========================================================
+-- LOOPS
+-- =========================================================
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if State.AutoTrain and IntoAutoTrain then
+            pcall(function()
+                IntoAutoTrain:FireServer(unpack(State.TrainArgs))
+            end)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if State.AutoRebirth and TryRebirthRE then
+            pcall(function()
+                TryRebirthRE:FireServer()
+            end)
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.15)
+        if State.AutoCollectOre then
+            pcall(collectSelectedOre)
+        end
+    end
+end)
+-- Simpan referensi
+local OreDropdown
+
+-- Fungsi update dropdown
+local function updateOreDropdown()
+    local list = getOreList()
+    print("[Ore] Update list:", table.concat(list, ", "))
+
+    if OreDropdown and #list > 0 then
+        -- coba beberapa method (beda versi WindUI beda API)
+        if OreDropdown.Refresh then
+            pcall(function() OreDropdown:Refresh(list) end)
+        elseif OreDropdown.SetValues then
+            pcall(function() OreDropdown:SetValues(list) end)
+        elseif OreDropdown.Values then
+            OreDropdown.Values = list
+        end
+    end
+end
+-- =========================================================
+-- WINDUI
+-- =========================================================
+local Window = WindUI:CreateWindow({
+    Title  = "Auto Farm Hub",
+    Author = "by kamu",
+    Icon   = "solar:wind-bold",
+    Theme  = "Dark",
+    ToggleKey = Enum.KeyCode.F,
+})
+
+Window:Tag({ Title = "v1.0", Color = "ElementBackground" })
+
+-- ============ TAB: FARM ============
+local FarmTab = Window:Tab({ Title = "Farm", Icon = "terminal" })
+
+FarmTab:Section({ Title = "Training" })
+
+FarmTab:Toggle({
+    Title = "Auto Train",
+    Desc  = "Loop FireServer IntoAutoTrainRE",
+    Icon  = "swords",
+    Value = false,
+    Flag  = "auto_train",
+    Callback = function(v)
+        State.AutoTrain = v
+        print("[AutoTrain]", v and "ON" or "OFF")
+    end,
+})
+
+FarmTab:Toggle({
+    Title = "Auto Rebirth",
+    Desc  = "Loop FireServer TryRebirthRE",
+    Icon  = "rotate-ccw",
+    Value = false,
+    Flag  = "auto_rebirth",
+    Callback = function(v)
+        State.AutoRebirth = v
+        print("[AutoRebirth]", v and "ON" or "OFF")
+    end,
+})
+
+FarmTab:Section({ Title = "Ore Collector" })
+
+FarmTab:Dropdown({
+    Title = "Pilih Ore",
+    Desc  = "Pilih ore yang mau di-collect otomatis",
+    Icon  = "gem",
+    Values = getOreList(),        -- contoh: {"Ore_1","Ore_2","Ore_3"}
+    Value = nil,
+    Multi = false,
+    Flag  = "ore_selector",
+    Callback = function(selected)
+        State.SelectedOre = selected
+        print("[Ore] Selected:", selected)
+    end,
+})
+OreDropdown = FarmTab:Dropdown({
+    Title = "Pilih Ore",
+    Desc  = "Pilih ore yang mau di-collect",
+    Icon  = "gem",
+    Values = getOreList(),
+    Multi = false,
+    Flag  = "ore_selector",
+    Callback = function(selected)
+        State.SelectedOre = selected
+        print("[Ore] Selected:", selected)
+    end,
+})
+FarmTab:Toggle({
+    Title = "Auto Collect Ore",
+    Desc  = "Trigger ProximityPrompt ore terpilih",
+    Icon  = "pickaxe",
+    Value = false,
+    Flag  = "auto_collect",
+    Callback = function(v)
+        State.AutoCollectOre = v
+        print("[AutoCollect]", v and "ON" or "OFF")
+    end,
+})
+
+FarmTab:Button({
+    Title = "Refresh Ore List",
+    Desc  = "Update dropdown kalau ada ore baru spawn",
+    Icon  = "refresh-ccw",
+    Callback = function()
+        local list = getOreList()
+        print("[Ore] Found:", table.concat(list, ", "))
+        -- NB: WindUI belum support dynamic dropdown update secara langsung,
+        -- jadi re-execute script atau reload UI kalau list berubah.
+    end,
+})
+
+-- ============ TAB: INFO ============
+local InfoTab = Window:Tab({ Title = "Info", Icon = "badge-info" })
+
+InfoTab:Paragraph({
+    Title = "Auto Farm Hub",
+    Desc  = "Auto Train • Auto Rebirth • Auto Collect Ore",
+    Buttons = {
+        {
+            Title = "Reload UI",
+            Variant = "Secondary",
+            Callback = function()
+                -- re-execute script kamu di sini
+                print("Reload UI...")
+            end,
+        },
+    },
+})
+
+print("[AutoFarm] Loaded ✅")
