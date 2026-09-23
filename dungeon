@@ -266,5 +266,83 @@ InfoTab:Paragraph({
         },
     },
 })
+-- =========================================================
+-- AUTO AFK (Auto Jump tiap 5 menit)
+-- =========================================================
+local State = {
+    AutoAFK     = false,
+    AFKInterval = 300, -- 5 menit = 300 detik
+}
 
+-- Fungsi jump
+local function doJump()
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    -- Cara 1: pakai Humanoid:ChangeState (paling aman)
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+
+    -- Cara 2 (fallback): pakai VirtualUser (kalau executor support)
+    if game:GetService("VirtualUser") then
+        pcall(function()
+            game:GetService("VirtualUser"):Button1Down(
+                Vector2.new(0, 0), workspace.CurrentCamera.CFrame
+            )
+            game:GetService("VirtualUser"):Button1Up(
+                Vector2.new(0, 0), workspace.CurrentCamera.CFrame
+            )
+        end)
+    end
+
+    print("[AFK] Jump at", os.date("%H:%M:%S"))
+end
+
+-- Loop AFK
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if State.AutoAFK then
+            task.wait(State.AFKInterval)
+            if State.AutoAFK then
+                pcall(doJump)
+            end
+        end
+    end
+end)
+-- ============ TAB: MISC ============
+local MiscTab = Window:Tab({ Title = "Misc", Icon = "settings" })
+
+MiscTab:Section({ Title = "Anti AFK" })
+
+MiscTab:Toggle({
+    Title = "Auto AFK (Jump)",
+    Desc  = "Loncat otomatis tiap 5 menit biar ga kena kick",
+    Icon  = "person-standing",
+    Value = false,
+    Flag  = "auto_afk",
+    Callback = function(v)
+        State.AutoAFK = v
+        print("[AFK]", v and "ON" or "OFF")
+    end,
+})
+
+MiscTab:Slider({
+    Title = "Interval AFK",
+    Desc  = "Jeda antar jump (detik)",
+    Icon  = "timer",
+    Value = {
+        Min  = 60,
+        Max  = 600,
+        Default = 300,
+    },
+    Step = 30,
+    Flag = "afk_interval",
+    Callback = function(v)
+        State.AFKInterval = v
+        print("[AFK] Interval:", v, "detik")
+    end,
+})
 print("[AutoFarm] Loaded ✅")
